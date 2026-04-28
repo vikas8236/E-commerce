@@ -1,0 +1,25 @@
+services:
+  user_db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: vikasd
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: user_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U vikasd -d user_db']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  user-service:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      user_db:
+        condition: service_healthy
+        
