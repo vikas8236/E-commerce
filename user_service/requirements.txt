@@ -8,3 +8,8 @@ pydantic[email]
 alembic
 sqlalchemy[asyncio] 
 asyncpg
+fastapi-mail
+
+# Tests / CI (TestClient uses httpx)
+pytest
+httpx

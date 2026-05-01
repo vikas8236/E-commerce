@@ -3,8 +3,22 @@ from app.core.security import hash_password, verify_password
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-async def create_user(db: AsyncSession, email: str, password: str):
-    user = User(email=email, hashed_password=hash_password(password))
+async def create_user(
+    db: AsyncSession,
+    email: str,
+    password: str,
+    *,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    phone_number: str | None = None,
+):
+    user = User(
+        email=email,
+        hashed_password=hash_password(password),
+        first_name=first_name,
+        last_name=last_name,
+        phone_number=phone_number,
+    )
     db.add(user)
     await db.commit()
     await db.refresh(user)
