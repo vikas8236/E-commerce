@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 class AddressCreate(BaseModel):
     street: str | None = None
@@ -17,6 +17,8 @@ class AddressUpdate(BaseModel):
     is_default: bool | None = None
 
 class AddressResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     street: str | None = None
     city: str

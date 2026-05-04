@@ -13,10 +13,17 @@ from jose import JWTError
 from app.models.refresh_token import RefreshToken
 from datetime import datetime, timedelta
 from pydantic import BaseModel, EmailStr
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 from app.core.security import hash_password, verify_password, create_password_reset_token, create_email_verification_token
 from app.services.email_service import send_password_reset_email, send_verification_email
 from app.core.config import is_mail_configured
+from app.schemas.responses import (
+    LoginSuccessResponse,
+    MessageResponse,
+    RefreshSuccessResponse,
+    SignupSuccessResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,23 +85,33 @@ _MAIL_NOT_CONFIGURED_DETAIL = (
 )
 
 
-@router.post("/signup", response_model=UserProfile)
+@router.post("/signup", response_model=SignupSuccessResponse)
 async def signup(user: UserCreate, db: AsyncSession = Depends(get_db)):
-    db_user = await create_user(
-        db,
-        user.email,
-        user.password,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        phone_number=user.phone_number,
-    )
-    return db_user
+    try:
+        db_user = await create_user(
+            db,
+            user.email,
+            user.password,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            phone_number=user.phone_number,
+        )
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="An account with this email or phone number is already registered. Try signing in or use different details.",
+        )
+    return SignupSuccessResponse(user=UserProfile.model_validate(db_user))
 
-@router.post("/login")
+@router.post("/login", response_model=LoginSuccessResponse)
 async def login(user: UserLogin, db: AsyncSession = Depends(get_db)):
     db_user = await authenticate_user(db, user.email, user.password)
     if not db_user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise HTTPException(
+            status_code=401,
+            detail="The email or password you entered is incorrect. Please try again.",
+        )
     # TODO: enable once email verification is implemented
     # if not db_user.is_verified:
     #     raise HTTPException(status_code=401, detail="Email not verified")
@@ -109,26 +126,29 @@ async def login(user: UserLogin, db: AsyncSession = Depends(get_db)):
     )
     db.add(db_token)
     await db.commit()
-    return {"access_token": access_token, "refresh_token": refresh_token}
+    return LoginSuccessResponse(access_token=access_token, refresh_token=refresh_token)
 
 class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str
 
-@router.post("/change-password")
+@router.post("/change-password", response_model=MessageResponse)
 async def change_password(data: ChangePasswordRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
 
     if not verify_password(data.old_password, current_user.hashed_password):
-        raise HTTPException(status_code=400, detail="Incorrect old password")
+        raise HTTPException(
+            status_code=400,
+            detail="The current password you entered is incorrect. Please try again.",
+        )
     current_user.hashed_password = hash_password(data.new_password)
     db.add(current_user)
     await db.commit()
-    return {"message": "Password changed successfully"}
+    return MessageResponse(message="Your password was changed successfully.")
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
-@router.post("/forgot-password")
+@router.post("/forgot-password", response_model=MessageResponse)
 async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
     if not is_mail_configured():
         logger.error("forgot-password called but mail is not configured")
@@ -137,7 +157,10 @@ async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depend
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(
+            status_code=404,
+            detail="No account is registered with this email address.",
+        )
 
     token = create_password_reset_token(data.email)
     try:
@@ -150,36 +173,47 @@ async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depend
             raise
         logger.exception("SMTP failed (password reset) for %s", data.email)
         raise HTTPException(status_code=503, detail=_mail_503_detail(exc)) from exc
-    return {"message": "Password reset email sent"}
+    return MessageResponse(
+        message="A password reset link has been sent to your email. It expires in one hour. Check your spam folder if you do not see it.",
+    )
 
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
 
-@router.post("/reset-password")
+@router.post("/reset-password", response_model=MessageResponse)
 async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
     try:
         payload = decode_token(data.token)
     except JWTError:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+        raise HTTPException(
+            status_code=400,
+            detail="This password reset link is invalid or has expired. Please request a new one from the forgot password page.",
+        )
 
     if payload.get("type") != "password_reset":
-        raise HTTPException(status_code=400, detail="Invalid token type")
+        raise HTTPException(
+            status_code=400,
+            detail="This link cannot be used to reset your password. Please use the link from your reset email.",
+        )
 
     result = await db.execute(select(User).where(User.email == payload["sub"]))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(
+            status_code=404,
+            detail="We could not find the account for this reset link. Please request a new password reset.",
+        )
 
     user.hashed_password = hash_password(data.new_password)
     db.add(user)
     await db.commit()
-    return {"message": "Password reset successfully"}
+    return MessageResponse(message="Your password was reset successfully. You can sign in with your new password.")
 
 class SendVerificationRequest(BaseModel):
     email: EmailStr
 
-@router.post("/send-verification")
+@router.post("/send-verification", response_model=MessageResponse)
 async def send_verification(data: SendVerificationRequest, db: AsyncSession = Depends(get_db)):
     if not is_mail_configured():
         logger.error("send-verification called but mail is not configured")
@@ -188,9 +222,15 @@ async def send_verification(data: SendVerificationRequest, db: AsyncSession = De
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(
+            status_code=404,
+            detail="No account is registered with this email address.",
+        )
     if user.is_verified:
-        raise HTTPException(status_code=400, detail="Email already verified")
+        raise HTTPException(
+            status_code=400,
+            detail="This email address is already verified. You can sign in normally.",
+        )
 
     token = create_email_verification_token(data.email)
     try:
@@ -203,48 +243,76 @@ async def send_verification(data: SendVerificationRequest, db: AsyncSession = De
             raise
         logger.exception("SMTP failed (verification) for %s", data.email)
         raise HTTPException(status_code=503, detail=_mail_503_detail(exc)) from exc
-    return {"message": "Verification email sent"}
+    return MessageResponse(
+        message="A verification email has been sent. Open the link in that email to verify your address.",
+    )
 
 class VerifyEmailRequest(BaseModel):
     token: str
 
-@router.post("/verify-email")
+@router.post("/verify-email", response_model=MessageResponse)
 async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
     try:
         payload = decode_token(data.token)
     except JWTError:
-        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+        raise HTTPException(
+            status_code=400,
+            detail="This verification link is invalid or has expired. Please request a new verification email.",
+        )
 
     if payload.get("type") != "email_verification":
-        raise HTTPException(status_code=400, detail="Invalid token type")
+        raise HTTPException(
+            status_code=400,
+            detail="This link cannot be used to verify your email. Please use the link from your verification email.",
+        )
 
     result = await db.execute(select(User).where(User.email == payload["sub"]))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(
+            status_code=404,
+            detail="We could not find the account for this verification link.",
+        )
     if user.is_verified:
-        raise HTTPException(status_code=400, detail="Email already verified")
+        raise HTTPException(
+            status_code=400,
+            detail="This email address is already verified.",
+        )
 
     user.is_verified = True
     db.add(user)
     await db.commit()
-    return {"message": "Email verified successfully"}
+    return MessageResponse(message="Your email address was verified successfully. Thank you.")
 
-@router.post("/logout")
-async def logout(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(RefreshToken).where(
-        RefreshToken.user_id == current_user.id,
-        RefreshToken.is_revoked == False
-    ))
+class LogoutRequest(BaseModel):
+    refresh_token: str
+
+
+@router.post("/logout", response_model=MessageResponse)
+async def logout(
+    data: LogoutRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(RefreshToken).where(
+            RefreshToken.user_id == current_user.id,
+            RefreshToken.token == data.refresh_token,
+            RefreshToken.is_revoked == False,
+        )
+    )
     db_token = result.scalar_one_or_none()
     if not db_token:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(
+            status_code=400,
+            detail="This refresh token is not valid for your account, or it was already used. Try signing out from all devices if the problem continues.",
+        )
     db_token.is_revoked = True
     db.add(db_token)
     await db.commit()
-    return {"message": "Logged out successfully"}
+    return MessageResponse(message="You have been signed out on this device successfully.")
 
-@router.post("/logout-all")
+@router.post("/logout-all", response_model=MessageResponse)
 async def logout_all(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(RefreshToken).where(
         RefreshToken.user_id == current_user.id
@@ -254,52 +322,70 @@ async def logout_all(current_user: User = Depends(get_current_user), db: AsyncSe
         db_token.is_revoked = True
         db.add(db_token)
     await db.commit()
-    return {"message": "Logged out from all devices successfully"}
+    return MessageResponse(message="You were signed out on all devices where you had an active session.")
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
-@router.post("/refresh")
+
+
+@router.post("/refresh", response_model=RefreshSuccessResponse)
 async def refresh(data: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
     refresh_token = data.refresh_token
     try:
         payload = decode_token(refresh_token)
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(
+            status_code=401,
+            detail="Your refresh token is invalid or has expired. Please sign in again.",
+        )
 
     if payload.get("type") != "refresh":
-        raise HTTPException(status_code=401, detail="Invalid token type")
+        raise HTTPException(
+            status_code=401,
+            detail="This token cannot be used to refresh your session. Please sign in again.",
+        )
 
     result = await db.execute(
         select(RefreshToken).where(
             RefreshToken.token == refresh_token,
-            RefreshToken.is_revoked == False
+            RefreshToken.is_revoked == False,
         )
     )
     db_token = result.scalar_one_or_none()
 
     if not db_token:
-        raise HTTPException(status_code=401, detail="Invalid refresh token")
-    result = await db.execute(
-    select(User).where(User.email == payload["sub"])
-    )
+        raise HTTPException(
+            status_code=401,
+            detail="This session is no longer valid. It may have been signed out elsewhere. Please sign in again.",
+        )
+    if db_token.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=401,
+            detail="Your session has expired. Please sign in again.",
+        )
+    result = await db.execute(select(User).where(User.email == payload["sub"]))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+        raise HTTPException(
+            status_code=401,
+            detail="We could not find your account. Please sign in again or create a new account.",
+        )
 
-    # Rotate refresh token
     db_token.is_revoked = True
 
     new_access_token = create_access_token({"sub": payload["sub"]})
     new_refresh_token = create_refresh_token({"sub": payload["sub"]})
 
-    db.add(RefreshToken(
-        user_id=user.id,
-        token=new_refresh_token,
-        expires_at=datetime.utcnow() + timedelta(days=7)
-    ))
+    db.add(
+        RefreshToken(
+            user_id=user.id,
+            token=new_refresh_token,
+            expires_at=datetime.utcnow() + timedelta(days=7),
+        )
+    )
     await db.commit()
 
-    return {
-        "access_token": new_access_token,
-        "refresh_token": new_refresh_token
-    }
+    return RefreshSuccessResponse(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
+    )
