@@ -13,3 +13,6 @@ fastapi-mail
 # Tests / CI (TestClient uses httpx)
 pytest
 httpx
+pytest-asyncio
+aiosqlite
+pytest-mock
