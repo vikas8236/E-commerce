@@ -1,5 +1,8 @@
 from sqlalchemy import Column, Integer, String, DateTime, func, Boolean
+from sqlalchemy.orm import relationship
 from app.db.base import Base
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -13,3 +16,4 @@ class User(Base):
     is_verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    roles = relationship("Role", secondary="user_roles", back_populates="users")

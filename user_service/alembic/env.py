@@ -2,7 +2,15 @@ from logging.config import fileConfig
 from sqlalchemy import pool
 from alembic import context
 from app.db.base import Base
-from app.models import user, refresh_token, address
+from app.models import (
+    address,
+    permission,
+    refresh_token,
+    role,
+    role_permissions,
+    user,
+    user_role,
+)
 import asyncio
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config

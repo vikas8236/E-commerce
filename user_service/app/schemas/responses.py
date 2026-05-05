@@ -34,6 +34,12 @@ class UserMeResponse(BaseModel):
     user: UserProfile
 
 
+class UserRolesResponse(BaseModel):
+    message: str
+    user_id: int
+    roles: list[str]
+
+
 class AddressListResponse(BaseModel):
     message: str
     addresses: list[AddressResponse]
