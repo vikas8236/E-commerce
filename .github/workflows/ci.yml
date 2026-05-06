@@ -1,4 +1,4 @@
-# Runs on every push and pull request: syntax check + tests for user_service.
+# Runs on every push and pull request: syntax check + tests for user_service and catalog_service.
 name: CI
 
 on:
@@ -20,7 +20,7 @@ jobs:
     env:
       # Required so app.db.session can create the async engine at import time.
       DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/ci
-      SECRET_KEY: ci-test-secret-key-must-be-long-enough-for-jwt-placeholder
+      SECRET_KEY: lRdiT9UWbqiV6nkxgzPgiQKeLI7wLBISP_a6dknBkumZlF0LU-GiGuh7MZ2ruc2kMkel66Kl1jo6r-N753nkzA
 
     steps:
       - name: Checkout
@@ -32,6 +32,39 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: user_service/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax check (compileall)
+        run: python -m compileall app -q
+
+      - name: Run tests
+        run: pytest tests -q --tb=short
+
+  catalog-service:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: catalog_service
+
+    env:
+      # Matches tests/conftest.py (SQLite in-memory); no Postgres service required.
+      DATABASE_URL: sqlite+aiosqlite://
+      SECRET_KEY: lRdiT9UWbqiV6nkxgzPgiQKeLI7wLBISP_a6dknBkumZlF0LU-GiGuh7MZ2ruc2kMkel66Kl1jo6r-N753nkzA
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: catalog_service/requirements.txt
 
       - name: Install dependencies
         run: |

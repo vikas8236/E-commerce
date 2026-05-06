@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite://"
-os.environ["SECRET_KEY"] = "test-secret-key-for-pytest-must-be-long-enough"
+os.environ["SECRET_KEY"] = "lRdiT9UWbqiV6nkxgzPgiQKeLI7wLBISP_a6dknBkumZlF0LU-GiGuh7MZ2ruc2kMkel66Kl1jo6r-N753nkzA"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,13 +24,13 @@ from app.models.role import Role
 from app.models.role_permissions import RolePermission
 
 # Register models on Base.metadata before create_all
-import app.models.address  # noqa: F401
-import app.models.permission  # noqa: F401
-import app.models.refresh_token  # noqa: F401
-import app.models.role  # noqa: F401
-import app.models.role_permissions  # noqa: F401
-import app.models.user  # noqa: F401
-import app.models.user_role  # noqa: F401
+import app.models.address  
+import app.models.permission  
+import app.models.refresh_token  
+import app.models.role  
+import app.models.role_permissions  
+import app.models.user  
+import app.models.user_role  
 
 from app.main import app
 
