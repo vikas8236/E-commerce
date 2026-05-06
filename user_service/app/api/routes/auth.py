@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 from app.core.security import hash_password, verify_password, create_password_reset_token, create_email_verification_token
 from app.services.email_service import send_password_reset_email, send_verification_email
+from app.services.auth_claims import build_access_token_claims
 from app.core.config import is_mail_configured
 from app.schemas.responses import (
     LoginSuccessResponse,
@@ -116,7 +117,8 @@ async def login(user: UserLogin, db: AsyncSession = Depends(get_db)):
     # if not db_user.is_verified:
     #     raise HTTPException(status_code=401, detail="Email not verified")
 
-    access_token = create_access_token({"sub": db_user.email})
+    claims = await build_access_token_claims(db, db_user)
+    access_token = create_access_token(claims)
     refresh_token = create_refresh_token({"sub": db_user.email})
 
     db_token = RefreshToken(
@@ -373,7 +375,8 @@ async def refresh(data: RefreshTokenRequest, db: AsyncSession = Depends(get_db))
 
     db_token.is_revoked = True
 
-    new_access_token = create_access_token({"sub": payload["sub"]})
+    claims = await build_access_token_claims(db, user)
+    new_access_token = create_access_token(claims)
     new_refresh_token = create_refresh_token({"sub": payload["sub"]})
 
     db.add(

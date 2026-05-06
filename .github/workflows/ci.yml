@@ -20,7 +20,7 @@ jobs:
     env:
       # Required so app.db.session can create the async engine at import time.
       DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/ci
-      SECRET_KEY: ci-test-secret-key-must-be-long-enough-for-jwt-placeholder
+      SECRET_KEY: lRdiT9UWbqiV6nkxgzPgiQKeLI7wLBISP_a6dknBkumZlF0LU-GiGuh7MZ2ruc2kMkel66Kl1jo6r-N753nkzA
 
     steps:
       - name: Checkout

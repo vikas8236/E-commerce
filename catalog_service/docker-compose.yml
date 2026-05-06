@@ -1,0 +1,31 @@
+services:
+  catalog_db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: vikasd
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: catalog_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - catalog_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vikasd -d catalog_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  catalog-service:
+    build: .
+    volumes:
+      - .:/app
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    depends_on:
+      catalog_db:
+        condition: service_healthy
+
+volumes:
+  catalog_db_data:

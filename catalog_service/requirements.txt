@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+sqlalchemy
+sqlalchemy[asyncio]
+asyncpg
+python-dotenv
+pydantic
+python-jose
+
+# Tests
+pytest
+pytest-asyncio
+httpx
+aiosqlite
+alembic
